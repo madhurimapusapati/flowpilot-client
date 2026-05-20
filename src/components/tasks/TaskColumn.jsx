@@ -22,6 +22,7 @@ export default function TaskColumn({ status, tasks, loading, onAdd, onEdit, onDe
             {loading ? "—" : tasks.length}
           </span>
         </div>
+        {isAdmin && (
         <button
           onClick={onAdd}
           className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-600
@@ -30,6 +31,7 @@ export default function TaskColumn({ status, tasks, loading, onAdd, onEdit, onDe
         >
           <Plus size={14} />
         </button>
+        )}
       </div>
 
       {/* Task list */}
@@ -39,12 +41,14 @@ export default function TaskColumn({ status, tasks, loading, onAdd, onEdit, onDe
         ) : tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <p className="text-xs text-slate-700">No tasks here</p>
+            {isAdmin && (
             <button
               onClick={onAdd}
               className="text-xs text-slate-600 hover:text-violet-400 mt-1 transition-colors"
             >
               + Add one
             </button>
+            )}
           </div>
         ) : (
           tasks.map((task) => (

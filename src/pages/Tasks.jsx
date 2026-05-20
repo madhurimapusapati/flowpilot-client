@@ -85,6 +85,7 @@ export default function Tasks() {
               <RefreshCw size={15} />
             </button>
 
+            {isAdmin && (
             <button
               onClick={() => setCreateStatus("todo")}
               disabled={!activeProjectId}
@@ -96,6 +97,7 @@ export default function Tasks() {
               <Plus size={16} />
               New Task
             </button>
+            )}
           </div>
         </div>
 

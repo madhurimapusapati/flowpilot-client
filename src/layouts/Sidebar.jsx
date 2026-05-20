@@ -21,7 +21,7 @@ function getInitials(name = "") {
 
 export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }) {
   const navigate = useNavigate();
-  const { logout, user } = useAuth();
+  const { logout, user, isAdmin } = useAuth();
 
   const handleLogout = () => {
     logout();
@@ -57,7 +57,9 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {navItems.map(({ label, icon: Icon, to }) => (
+        {navItems
+          .filter(({ to }) => to !== "/projects" || isAdmin)
+          .map(({ label, icon: Icon, to }) => (
           <NavLink
             key={to}
             to={to}

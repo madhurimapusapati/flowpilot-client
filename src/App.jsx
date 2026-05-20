@@ -15,6 +15,13 @@ function PrivateRoute({ children }) {
   return isAuth ? children : <Navigate to="/login" replace />;
 }
 
+function AdminRoute({ children }) {
+  const { isAuth, isAdmin } = useAuth();
+  if (!isAuth) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
 function GuestRoute({ children }) {
   const { isAuth } = useAuth();
   return !isAuth ? children : <Navigate to="/dashboard" replace />;
@@ -29,7 +36,7 @@ export default function App() {
       <Route path="/signup" element={<GuestRoute><Signup /></GuestRoute>} />
 
       <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-      <Route path="/projects"  element={<PrivateRoute><Projects /></PrivateRoute>} />
+      <Route path="/projects"  element={<AdminRoute><Projects /></AdminRoute>} />
 
       <Route path="/tasks"    element={<PrivateRoute><Tasks /></PrivateRoute>} />
       <Route path="/team"     element={<PrivateRoute><Team /></PrivateRoute>} />

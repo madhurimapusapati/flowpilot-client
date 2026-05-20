@@ -1,13 +1,14 @@
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { Plus, FolderKanban, Layers, Circle, Clock, CheckCircle2, Calendar } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Plus, FolderKanban, Layers, Circle, Clock, CheckCircle2, Calendar, Users, AlertTriangle } from "lucide-react";
 
 import DashboardLayout    from "../layouts/DashboardLayout";
 import StatCard           from "../components/dashboard/StatCard";
 import SectionHeader      from "../components/dashboard/SectionHeader";
 import { useAuth }        from "../context/AuthContext";
 import useDashboardStats  from "../hooks/useDashboardStats";
-import { fetchRecentTasks } from "../services/taskService";
+import useProjects        from "../hooks/useProjects";
+import { fetchRecentTasks, fetchOverdueTasks } from "../services/taskService";
 
 // ── Skeleton helpers ──────────────────────────────────────────────────────────
 function StatSkeleton() {
@@ -67,26 +68,43 @@ function greeting() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { user }           = useAuth();
+  const { user, isAdmin }  = useAuth();
   const { stats, loading } = useDashboardStats();
+  const { projects }       = useProjects();
   const navigate           = useNavigate();
 
-  // Recent tasks — real data
-  const [recentTasks, setRecentTasks]       = useState([]);
-  const [tasksLoading, setTasksLoading]     = useState(true);
+  // Recent tasks
+  const [recentTasks, setRecentTasks]   = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+
+  // Overdue tasks from dedicated endpoint
+  const [overdueTasks, setOverdueTasks] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
-    fetchRecentTasks()
-      .then(({ data }) => { if (!cancelled) setRecentTasks(data); })
+    Promise.all([fetchRecentTasks(), fetchOverdueTasks()])
+      .then(([recent, overdue]) => {
+        if (!cancelled) {
+          setRecentTasks(recent.data);
+          setOverdueTasks(overdue.data);
+        }
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setTasksLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
-  const today = new Date().toLocaleDateString("en-US", {
+  const today      = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const todayDisplay = today.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
   });
+
+  // Overdue projects — not completed and dueDate < today
+  const overdueProjects = useMemo(() =>
+    projects.filter((p) => p.dueDate && p.status !== "Completed" && new Date(p.dueDate) < today),
+  [projects]);
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
@@ -103,7 +121,7 @@ export default function Dashboard() {
     },
     {
       id: "tasks",
-      label: "Total Tasks",
+      label: isAdmin ? "Total Tasks" : "My Tasks",
       value: String(stats.totalTasks),
       change: `${stats.completedTasks} completed`,
       trend: "up",
@@ -112,8 +130,8 @@ export default function Dashboard() {
     },
     {
       id: "completed",
-      label: "Projects Done",
-      value: String(stats.byStatus.Completed),
+      label: isAdmin ? "Projects Done" : "Tasks Done",
+      value: isAdmin ? String(stats.byStatus.Completed) : String(stats.completedTasks),
       change: "all time",
       trend: "neutral",
       color: "emerald",
@@ -140,8 +158,9 @@ export default function Dashboard() {
             <h1 className="text-2xl font-bold text-white tracking-tight">
               {greeting()}, {firstName} 👋
             </h1>
-            <p className="text-slate-500 text-sm mt-1">{today}</p>
+            <p className="text-slate-500 text-sm mt-1">{todayDisplay}</p>
           </div>
+          {isAdmin && (
           <button
             onClick={() => navigate("/projects")}
             className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600
@@ -152,18 +171,186 @@ export default function Dashboard() {
             <Plus size={16} />
             New Project
           </button>
+          )}
         </div>
 
-        {/* Stat cards */}
+        {/* Stat cards — admin sees all 4, member sees only task stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {loading
-            ? Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
-            : statCards.map((s) => <StatCard key={s.id} {...s} />)
+            ? Array.from({ length: isAdmin ? 4 : 2 }).map((_, i) => <StatSkeleton key={i} />)
+            : (isAdmin ? statCards : statCards.filter((s) => s.id === "tasks" || s.id === "completed")).map((s) => <StatCard key={s.id} {...s} />)
           }
         </div>
 
+        {/* ── Overdue alert ── visible to both roles when there are overdue items */}
+        {!loading && !tasksLoading && (overdueProjects.length > 0 || overdueTasks.length > 0) && (
+          <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+              <p className="text-sm font-semibold text-red-400">
+                {overdueProjects.length + overdueTasks.length} overdue item{overdueProjects.length + overdueTasks.length !== 1 ? "s" : ""} need attention
+              </p>
+            </div>
+
+            {/* Overdue projects */}
+            {overdueProjects.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Projects</p>
+                {overdueProjects.map((p) => {
+                  const s = STATUS_STYLES[p.status] || STATUS_STYLES.Planning;
+                  const daysOver = Math.floor((today - new Date(p.dueDate)) / 86400000);
+                  return (
+                    <div
+                      key={p._id}
+                      onClick={() => navigate(isAdmin ? "/projects" : "/tasks")}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-red-500/5 border border-red-500/15
+                      hover:bg-red-500/10 transition-colors cursor-pointer"
+                    >
+                      <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${s.bar} flex items-center justify-center flex-shrink-0`}>
+                        <Layers size={12} className="text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-200 truncate">{p.title}</p>
+                        <p className="text-xs text-red-400/80">
+                          Due {formatDate(p.dueDate)} · {daysOver} day{daysOver !== 1 ? "s" : ""} overdue
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${s.pill}`}>
+                        {p.status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Overdue tasks */}
+            {overdueTasks.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Tasks</p>
+                {overdueTasks.map((t) => {
+                  const daysOver = Math.floor((today - new Date(t.dueDate)) / 86400000);
+                  const PRIORITY_COLORS = {
+                    critical: "text-red-400 bg-red-500/10 border-red-500/30",
+                    high:     "text-orange-400 bg-orange-500/10 border-orange-500/30",
+                    medium:   "text-blue-400 bg-blue-500/10 border-blue-500/30",
+                    low:      "text-slate-400 bg-slate-500/10 border-slate-500/30",
+                  };
+                  return (
+                    <div
+                      key={t._id}
+                      onClick={() => navigate("/tasks")}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-red-500/5 border border-red-500/15
+                      hover:bg-red-500/10 transition-colors cursor-pointer"
+                    >
+                      <Clock size={14} className="text-red-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-200 truncate">{t.title}</p>
+                        <p className="text-xs text-red-400/80">
+                          {t.project?.title} · Due {formatDate(t.dueDate)} · {daysOver} day{daysOver !== 1 ? "s" : ""} overdue
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border uppercase tracking-wide flex-shrink-0 ${
+                        PRIORITY_COLORS[t.priority] || PRIORITY_COLORS.medium
+                      }`}>{t.priority}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* My Projects — member only: shows all projects they are part of */}
+        {!isAdmin && (
+        <div>
+          <SectionHeader
+            title="My Projects"
+            subtitle={`${projects.length} project${projects.length !== 1 ? "s" : ""} you're part of`}
+            action="Go to Tasks"
+            onAction={() => navigate("/tasks")}
+          />
+          {projects.length === 0 ? (
+            <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl p-12 flex flex-col items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                <FolderKanban size={22} className="text-violet-400/60" />
+              </div>
+              <p className="text-slate-400 text-sm">No projects assigned yet</p>
+              <p className="text-slate-600 text-xs">Ask your admin to add you to a project.</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-2xl overflow-hidden">
+              {projects.map((project, idx) => {
+                const s = STATUS_STYLES[project.status] || STATUS_STYLES.Planning;
+                const isOwner = project.createdBy?._id?.toString() === user?._id ||
+                                project.createdBy?.toString()       === user?._id;
+                const teammates = (project.members || []).filter(
+                  (m) => (m._id || m).toString() !== user?._id
+                );
+                return (
+                  <div
+                    key={project._id}
+                    onClick={() => navigate("/tasks")}
+                    className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-800/40 transition-colors cursor-pointer
+                    ${idx !== projects.length - 1 ? "border-b border-slate-800/60" : ""}`}
+                  >
+                    <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${s.bar} flex items-center justify-center flex-shrink-0`}>
+                      <Layers size={15} className="text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-slate-200 truncate">{project.title}</p>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${s.pill}`}>
+                          {project.status}
+                        </span>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                          isOwner
+                            ? "text-amber-400 bg-amber-500/10 border-amber-500/25"
+                            : "text-blue-400 bg-blue-500/10 border-blue-500/25"
+                        }`}>
+                          {isOwner ? "Owner" : "Teammate"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5 truncate">
+                        {project.description || "No description"}
+                        {project.dueDate && ` · Due ${formatDate(project.dueDate)}`}
+                      </p>
+                    </div>
+                    <div className="hidden sm:flex flex-col items-end gap-1 w-24 flex-shrink-0">
+                      <span className="text-xs text-slate-500">{project.progress ?? 0}%</span>
+                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full bg-gradient-to-r ${s.bar} rounded-full`} style={{ width: `${project.progress ?? 0}%` }} />
+                      </div>
+                    </div>
+                    {teammates.length > 0 && (
+                    <div className="hidden md:flex items-center gap-1.5 flex-shrink-0">
+                      <Users size={11} className="text-slate-600" />
+                      <div className="flex -space-x-1.5">
+                        {teammates.slice(0, 3).map((m, i) => (
+                          <div key={m._id || i} title={m.name}
+                            className={`w-6 h-6 rounded-full ${AVATAR_COLORS[i % AVATAR_COLORS.length]} border-2 border-slate-900 flex items-center justify-center text-white text-[9px] font-bold`}
+                          >
+                            {getInitials(m.name || "")}
+                          </div>
+                        ))}
+                        {teammates.length > 3 && (
+                          <div className="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-900 flex items-center justify-center text-slate-400 text-[9px] font-bold">
+                            +{teammates.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        )}
+
         {/* Middle row */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 ${isAdmin ? "xl:grid-cols-3" : ""} gap-6`}>
 
           {/* Recent Tasks — real data */}
           <div className="xl:col-span-2 bg-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-5">
@@ -235,7 +422,8 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Status breakdown — real data */}
+          {/* Project Status breakdown — admin only */}
+          {isAdmin && (
           <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-5">
             <SectionHeader title="Project Status" subtitle="Live breakdown" />
 
@@ -275,22 +463,22 @@ export default function Dashboard() {
             {/* Quick counts strip */}
             <div className="mt-5 pt-4 border-t border-slate-800/60 grid grid-cols-3 gap-2">
               {[
-                { label: "Planning", value: stats.byStatus.Planning, color: "text-amber-400"  },
-                { label: "Active",   value: stats.byStatus.Active,   color: "text-emerald-400" },
-                { label: "Done",     value: stats.byStatus.Completed, color: "text-blue-400"  },
+                { label: "Planning", value: stats.byStatus.Planning,  color: "text-amber-400"   },
+                { label: "Active",   value: stats.byStatus.Active,    color: "text-emerald-400" },
+                { label: "Done",     value: stats.byStatus.Completed, color: "text-blue-400"    },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center p-2 rounded-xl bg-slate-800/40">
-                  <p className={`text-lg font-bold ${color}`}>
-                    {loading ? "—" : value}
-                  </p>
+                  <p className={`text-lg font-bold ${color}`}>{loading ? "—" : value}</p>
                   <p className="text-[10px] text-slate-600 mt-0.5">{label}</p>
                 </div>
               ))}
             </div>
           </div>
+          )}
         </div>
 
-        {/* Recent Projects — real data */}
+        {/* Recent Projects — admin only */}
+        {isAdmin && (
         <div>
           <SectionHeader
             title="Recent Projects"
@@ -328,12 +516,9 @@ export default function Dashboard() {
                     className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-800/40 transition-colors cursor-pointer
                     ${idx !== stats.recentProjects.length - 1 ? "border-b border-slate-800/60" : ""}`}
                   >
-                    {/* Icon */}
                     <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${s.bar} flex items-center justify-center flex-shrink-0`}>
                       <Layers size={15} className="text-white" />
                     </div>
-
-                    {/* Title + status */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-semibold text-slate-200 truncate">{project.title}</p>
@@ -346,33 +531,22 @@ export default function Dashboard() {
                         {project.dueDate && ` · Due ${formatDate(project.dueDate)}`}
                       </p>
                     </div>
-
-                    {/* Progress bar */}
                     <div className="hidden sm:flex flex-col items-end gap-1 w-28 flex-shrink-0">
                       <span className="text-xs text-slate-500">{project.progress ?? 0}%</span>
                       <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full bg-gradient-to-r ${s.bar} rounded-full`}
-                          style={{ width: `${project.progress ?? 0}%` }}
-                        />
+                        <div className={`h-full bg-gradient-to-r ${s.bar} rounded-full`} style={{ width: `${project.progress ?? 0}%` }} />
                       </div>
                     </div>
-
-                    {/* Member avatars */}
                     <div className="hidden md:flex -space-x-2 flex-shrink-0">
                       {members.slice(0, 3).map((m, i) => (
-                        <div
-                          key={m._id || i}
-                          title={m.name}
-                          className={`w-6 h-6 rounded-full ${AVATAR_COLORS[i % AVATAR_COLORS.length]}
-                          border-2 border-slate-900 flex items-center justify-center text-white text-[9px] font-bold`}
+                        <div key={m._id || i} title={m.name}
+                          className={`w-6 h-6 rounded-full ${AVATAR_COLORS[i % AVATAR_COLORS.length]} border-2 border-slate-900 flex items-center justify-center text-white text-[9px] font-bold`}
                         >
                           {getInitials(m.name)}
                         </div>
                       ))}
                       {members.length > 3 && (
-                        <div className="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-900
-                          flex items-center justify-center text-slate-400 text-[9px] font-bold">
+                        <div className="w-6 h-6 rounded-full bg-slate-700 border-2 border-slate-900 flex items-center justify-center text-slate-400 text-[9px] font-bold">
                           +{members.length - 3}
                         </div>
                       )}
@@ -383,6 +557,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+        )}
 
         <div className="h-4" />
       </div>

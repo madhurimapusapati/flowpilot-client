@@ -8,8 +8,9 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
-export const fetchProjects      = ()         => API.get("/projects");
+export const fetchProjects       = ()         => API.get("/projects");
 export const fetchDashboardStats = ()         => API.get("/projects/stats");
-export const createProject      = (data)     => API.post("/projects", data);
-export const updateProject      = (id, data) => API.put(`/projects/${id}`, data);
-export const deleteProject      = (id)       => API.delete(`/projects/${id}`);
+export const createProject       = (data)     => API.post("/projects", data);
+export const updateProject       = (id, data) => API.put(`/projects/${id}`, data);
+export const deleteProject       = (id)       => API.delete(`/projects/${id}`);
+export const fetchAllUsers       = ()         => API.get("/auth/users");

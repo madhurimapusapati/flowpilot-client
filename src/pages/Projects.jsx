@@ -70,6 +70,7 @@ export default function Projects() {
             >
               <RefreshCw size={15} />
             </button>
+            {isAdmin && (
             <button
               onClick={() => setCreateOpen(true)}
               className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600
@@ -80,6 +81,7 @@ export default function Projects() {
               <Plus size={16} />
               New Project
             </button>
+            )}
           </div>
         </div>
 
@@ -125,6 +127,7 @@ export default function Projects() {
           <EmptyState
             filtered={projects.length > 0}
             onCreateClick={() => setCreateOpen(true)}
+            isAdmin={isAdmin}
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
